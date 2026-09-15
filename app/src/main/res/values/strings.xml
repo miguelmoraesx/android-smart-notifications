@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Notificações Inteligentes</string>
+    <string name="screen_title">PoC de resumo on-device</string>
+    <string name="screen_subtitle">Android → LiteRT-LM → Gemma → resumo</string>
+    <string name="select_model">Selecionar modelo .litertlm</string>
+    <string name="input_label">Texto para resumir</string>
+    <string name="summarize">Gerar resumo</string>
+    <string name="summary_label">Resumo gerado</string>
+    <string name="summary_placeholder">O resultado real do modelo aparecerá aqui.</string>
+    <string name="sample_text">João: A reunião mudou para amanhã às 14h.\nMaria: Vou revisar o relatório hoje.\nPedro: Precisamos entregar até sexta-feira.</string>
+</resources>
+
