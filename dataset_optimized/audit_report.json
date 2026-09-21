@@ -1,0 +1,154 @@
+{
+  "source_examples": 10000,
+  "optimized_examples": 3707,
+  "duplicates_removed": 6293,
+  "reduction_percent": 62.93,
+  "source_language_labels": {
+    "en-US": 1482,
+    "es-ES": 538,
+    "mixed": 495,
+    "pt-BR": 7485
+  },
+  "language_labels_repaired": {
+    "en-US->pt-BR": 1293,
+    "es-ES->en-US": 42,
+    "es-ES->pt-BR": 469,
+    "mixed->en-US": 41,
+    "mixed->es-ES": 26,
+    "mixed->pt-BR": 428
+  },
+  "optimized_categories": {
+    "android_system": 6,
+    "banking": 625,
+    "calendar": 16,
+    "ecommerce": 625,
+    "education": 44,
+    "email": 10,
+    "fitness": 8,
+    "food_delivery": 72,
+    "instant_messaging": 595,
+    "news": 10,
+    "security": 382,
+    "social_media": 141,
+    "subscription": 10,
+    "transport": 535,
+    "weather": 4,
+    "work": 624
+  },
+  "low_diversity_categories_under_50_unique_pairs": {
+    "android_system": 6,
+    "calendar": 16,
+    "education": 44,
+    "email": 10,
+    "fitness": 8,
+    "news": 10,
+    "subscription": 10,
+    "weather": 4
+  },
+  "max_output_words": 25,
+  "average_output_words": 11.74,
+  "source_splits": {
+    "train": {
+      "examples": 7940,
+      "category_count": 13,
+      "categories": [
+        "android_system",
+        "calendar",
+        "ecommerce",
+        "education",
+        "email",
+        "fitness",
+        "food_delivery",
+        "instant_messaging",
+        "news",
+        "security",
+        "social_media",
+        "subscription",
+        "work"
+      ]
+    },
+    "validation": {
+      "examples": 1320,
+      "category_count": 3,
+      "categories": [
+        "banking",
+        "instant_messaging",
+        "transport"
+      ]
+    },
+    "test": {
+      "examples": 740,
+      "category_count": 2,
+      "categories": [
+        "instant_messaging",
+        "weather"
+      ]
+    }
+  },
+  "split_examples": {
+    "train": 2965,
+    "validation": 371,
+    "test": 371
+  },
+  "categories_per_split": {
+    "train": [
+      "android_system",
+      "banking",
+      "calendar",
+      "ecommerce",
+      "education",
+      "email",
+      "fitness",
+      "food_delivery",
+      "instant_messaging",
+      "news",
+      "security",
+      "social_media",
+      "subscription",
+      "transport",
+      "weather",
+      "work"
+    ],
+    "validation": [
+      "android_system",
+      "banking",
+      "calendar",
+      "ecommerce",
+      "education",
+      "email",
+      "fitness",
+      "food_delivery",
+      "instant_messaging",
+      "news",
+      "security",
+      "social_media",
+      "subscription",
+      "transport",
+      "weather",
+      "work"
+    ],
+    "test": [
+      "android_system",
+      "banking",
+      "calendar",
+      "ecommerce",
+      "education",
+      "email",
+      "fitness",
+      "food_delivery",
+      "instant_messaging",
+      "news",
+      "security",
+      "social_media",
+      "subscription",
+      "transport",
+      "weather",
+      "work"
+    ]
+  },
+  "normalized_input_overlap": {
+    "train_validation": 0,
+    "train_test": 0,
+    "validation_test": 0
+  }
+}

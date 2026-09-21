@@ -77,6 +77,7 @@
             android:gravity="top|start"
             android:importantForAutofill="no"
             android:inputType="textCapSentences|textMultiLine"
+            android:maxLength="1600"
             android:padding="12dp"
             android:scrollbars="vertical"
             android:text="@string/sample_text"
@@ -89,6 +90,30 @@
             android:layout_marginTop="16dp"
             android:enabled="false"
             android:text="@string/summarize" />
+
+        <Button
+            android:id="@+id/cancelSummaryButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/cancel_summary"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/unloadModelButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/unload_model"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/reloadModelButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/reload_model"
+            android:visibility="gone" />
 
         <TextView
             android:layout_width="match_parent"
@@ -109,6 +134,15 @@
             android:text="@string/summary_placeholder"
             android:textColor="@color/text_primary"
             android:textIsSelectable="true" />
+
+        <TextView
+            android:id="@+id/inferenceTimeText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/errorText"

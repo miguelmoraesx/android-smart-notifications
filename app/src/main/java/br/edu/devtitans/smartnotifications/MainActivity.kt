@@ -35,6 +35,15 @@ class MainActivity : ComponentActivity() {
         binding.summarizeButton.setOnClickListener {
             viewModel.summarize(binding.inputText.text.toString())
         }
+        binding.cancelSummaryButton.setOnClickListener {
+            viewModel.cancelSummary()
+        }
+        binding.unloadModelButton.setOnClickListener {
+            viewModel.unloadModel()
+        }
+        binding.reloadModelButton.setOnClickListener {
+            viewModel.reloadStoredModel()
+        }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -49,10 +58,20 @@ class MainActivity : ComponentActivity() {
         selectModelButton.isEnabled = !state.isBusy
         inputText.isEnabled = !state.isBusy
         summarizeButton.isEnabled = state.modelReady && !state.isBusy
+        cancelSummaryButton.visibility = if (state.isGenerating) View.VISIBLE else View.GONE
+        unloadModelButton.visibility = if (state.modelReady) View.VISIBLE else View.GONE
+        unloadModelButton.isEnabled = !state.isBusy
+        reloadModelButton.visibility =
+            if (!state.modelReady && state.hasStoredModel) View.VISIBLE else View.GONE
+        reloadModelButton.isEnabled = !state.isBusy
 
         summaryText.text = state.summary.ifBlank { getString(R.string.summary_placeholder) }
+        inferenceTimeText.text = state.lastInferenceDurationMs?.let { durationMs ->
+            getString(R.string.inference_time, durationMs / 1_000.0)
+        }.orEmpty()
+        inferenceTimeText.visibility =
+            if (state.lastInferenceDurationMs == null) View.GONE else View.VISIBLE
         errorText.text = state.errorMessage.orEmpty()
         errorText.visibility = if (state.errorMessage == null) View.GONE else View.VISIBLE
     }
 }
-

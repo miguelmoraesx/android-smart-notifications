@@ -127,3 +127,24 @@ app/
 - a qualidade do resumo depende do modelo quantizado escolhido;
 - ainda não existem captura/agrupamento de notificações, `NotificationViewer`, serviço Android ou
   integração com SystemUI/AOSP.
+
+## Dataset otimizado e limites de inferência
+
+O utilitário `tools/optimize_dataset.py` audita o ZIP original sem executar scripts contidos nele e
+gera splits JSONL mínimos (`input`/`output`) para SFT. A versão gerada está em
+`dataset_optimized.zip` e inclui um relatório reproduzível das correções.
+
+Para reduzir latência e pressão de memória no aparelho, a inferência limita a entrada aos 1.600
+caracteres mais recentes, o contexto a 768 tokens e a resposta a 48 tokens. O backend usa no máximo
+quatro threads nativas e as atualizações da interface são agrupadas em blocos de 32 caracteres. A
+tela permite cancelar uma geração e descarregar/recarregar o modelo para liberar a memória nativa.
+Esses limites reduzem o KV cache e cópias de strings, mas não alteram a memória fixa necessária para
+carregar os pesos: um arquivo de modelo com aproximadamente 2,4 GB ainda exige um aparelho
+compatível ou a troca por um `.litertlm` menor e mais quantizado.
+
+Para regerar o dataset compacto:
+
+```bash
+python3 tools/optimize_dataset.py /caminho/dataset.zip dataset_optimized \
+  --zip-output dataset_optimized.zip
+```

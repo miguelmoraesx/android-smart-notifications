@@ -2,6 +2,7 @@ package br.edu.devtitans.smartnotifications
 
 import android.app.Application
 import android.net.Uri
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import br.edu.devtitans.smartnotifications.ai.LLMManager
@@ -12,6 +13,7 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +28,8 @@ data class MainUiState(
     val isGenerating: Boolean = false,
     val summary: String = "",
     val errorMessage: String? = null,
+    val hasStoredModel: Boolean = false,
+    val lastInferenceDurationMs: Long? = null,
 ) {
     val isBusy: Boolean get() = isModelOperationRunning || isGenerating
 }
@@ -35,12 +39,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val llmManager = LLMManager(application)
     private val summaryGenerator = SummaryGenerator(llmManager, PromptBuilder())
     private val closeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val installedModelAtStartup = modelStore.getInstalledModel()
+    private var generationJob: Job? = null
 
-    private val mutableUiState = MutableStateFlow(MainUiState())
+    private val mutableUiState = MutableStateFlow(
+        MainUiState(hasStoredModel = installedModelAtStartup != null),
+    )
     val uiState: StateFlow<MainUiState> = mutableUiState.asStateFlow()
 
     init {
-        modelStore.getInstalledModel()?.let(::initializeModel)
+        installedModelAtStartup?.let(::initializeModel)
     }
 
     fun importAndInitializeModel(uri: Uri) {
@@ -80,11 +88,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        viewModelScope.launch {
+        generationJob = viewModelScope.launch {
+            val startedAt = SystemClock.elapsedRealtime()
             mutableUiState.value = mutableUiState.value.copy(
                 isGenerating = true,
                 summary = "",
                 errorMessage = null,
+                lastInferenceDurationMs = null,
             )
 
             try {
@@ -92,15 +102,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     mutableUiState.value = mutableUiState.value.copy(summary = partialSummary)
                 }
             } catch (cancellation: CancellationException) {
+                mutableUiState.value = mutableUiState.value.copy(
+                    errorMessage = "Geração cancelada.",
+                )
                 throw cancellation
             } catch (throwable: Throwable) {
                 mutableUiState.value = mutableUiState.value.copy(
                     errorMessage = throwable.readableMessage("Falha durante a inferência"),
                 )
             } finally {
-                mutableUiState.value = mutableUiState.value.copy(isGenerating = false)
+                mutableUiState.value = mutableUiState.value.copy(
+                    isGenerating = false,
+                    lastInferenceDurationMs = SystemClock.elapsedRealtime() - startedAt,
+                )
+                generationJob = null
             }
         }
+    }
+
+    fun cancelSummary() {
+        generationJob?.cancel()
+    }
+
+    fun unloadModel() {
+        if (mutableUiState.value.isBusy || !mutableUiState.value.modelReady) return
+
+        viewModelScope.launch {
+            mutableUiState.value = mutableUiState.value.copy(
+                modelStatus = "Liberando memória do modelo…",
+                isModelOperationRunning = true,
+                errorMessage = null,
+            )
+            try {
+                llmManager.close()
+                mutableUiState.value = mutableUiState.value.copy(
+                    modelStatus = "Modelo descarregado da memória. O arquivo continua salvo.",
+                    modelReady = false,
+                    isModelOperationRunning = false,
+                    hasStoredModel = modelStore.getInstalledModel() != null,
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (throwable: Throwable) {
+                showModelError(throwable)
+            }
+        }
+    }
+
+    fun reloadStoredModel() {
+        if (mutableUiState.value.isBusy || mutableUiState.value.modelReady) return
+        val modelFile = modelStore.getInstalledModel()
+        if (modelFile == null) {
+            mutableUiState.value = mutableUiState.value.copy(
+                hasStoredModel = false,
+                errorMessage = "Nenhum modelo salvo foi encontrado.",
+            )
+            return
+        }
+        initializeModel(modelFile)
     }
 
     private fun initializeModel(modelFile: File) {
@@ -128,10 +187,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         llmManager.initialize(modelFile)
         mutableUiState.value = mutableUiState.value.copy(
-            modelStatus = "Modelo pronto (${modelFile.length().toMegabytes()} MB, CPU).",
+            modelStatus = "Modelo pronto (${modelFile.length().toMegabytes()} MB, CPU com ${llmManager.cpuThreadCount} threads).",
             modelReady = true,
             isModelOperationRunning = false,
             errorMessage = null,
+            hasStoredModel = true,
         )
     }
 
@@ -141,6 +201,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             modelReady = false,
             isModelOperationRunning = false,
             errorMessage = throwable.readableMessage("Falha ao carregar o modelo"),
+            hasStoredModel = modelStore.getInstalledModel() != null,
         )
     }
 

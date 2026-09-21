@@ -28,7 +28,9 @@ class LocalModelStore(private val context: Context) {
         val pendingFile = File(modelDirectory, "$MODEL_FILE_NAME.pending")
         try {
             context.contentResolver.openInputStream(uri)?.use { input ->
-                pendingFile.outputStream().buffered().use { output -> input.copyTo(output) }
+                pendingFile.outputStream().buffered(MODEL_COPY_BUFFER_BYTES).use { output ->
+                    input.copyTo(output, MODEL_COPY_BUFFER_BYTES)
+                }
             } ?: error("Não foi possível abrir o arquivo selecionado.")
 
             check(pendingFile.length() > 0L) { "O arquivo de modelo selecionado está vazio." }
@@ -55,6 +57,6 @@ class LocalModelStore(private val context: Context) {
 
     private companion object {
         const val MODEL_FILE_NAME = "selected-model.litertlm"
+        const val MODEL_COPY_BUFFER_BYTES = 256 * 1024
     }
 }
-

@@ -5,6 +5,7 @@ import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.NoRepeatNgramConfig
 import com.google.ai.edge.litertlm.SamplerConfig
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,10 @@ class LLMManager(context: Context) : TextGenerator {
     val isInitialized: Boolean
         get() = engine?.isInitialized() == true
 
+    val cpuThreadCount: Int = Runtime.getRuntime()
+        .availableProcessors()
+        .coerceIn(1, MAX_CPU_THREADS)
+
     suspend fun initialize(modelFile: File) {
         operationMutex.withLock {
             withContext(Dispatchers.Default) {
@@ -48,9 +53,7 @@ class LLMManager(context: Context) : TextGenerator {
                     "O modelo precisa estar no formato .litertlm."
                 }
 
-                engine?.let { current ->
-                    if (current.isInitialized()) current.close()
-                }
+                engine?.let { current -> runCatching { current.close() } }
                 engine = null
 
                 // CPU is the compatibility-first backend for this PoC. A future device profile can
@@ -58,7 +61,12 @@ class LLMManager(context: Context) : TextGenerator {
                 val newEngine = Engine(
                     EngineConfig(
                         modelPath = modelFile.absolutePath,
-                        backend = Backend.CPU(),
+                        // Capping native workers avoids one worker/scratch allocation per host core
+                        // on large emulators and keeps other Android work responsive.
+                        backend = Backend.CPU(threadCount = cpuThreadCount),
+                        // The prompt is bounded to 1,600 chars and summaries to 48 tokens. A
+                        // 768-token context is enough for this task without an oversized KV cache.
+                        maxNumTokens = 768,
                         cacheDir = cacheDirectory.absolutePath,
                     ),
                 )
@@ -68,7 +76,8 @@ class LLMManager(context: Context) : TextGenerator {
                     newEngine.initialize()
                     engine = newEngine
                 } catch (throwable: Throwable) {
-                    if (newEngine.isInitialized()) runCatching { newEngine.close() }
+                    // A failed native initialization can still own partially allocated buffers.
+                    runCatching { newEngine.close() }
                     throw throwable
                 }
             }
@@ -85,25 +94,39 @@ class LLMManager(context: Context) : TextGenerator {
             val conversation = activeEngine.createConversation(
                 ConversationConfig(
                     samplerConfig = SamplerConfig(
-                        topK = 40,
-                        topP = 0.9,
-                        temperature = 0.2,
+                        topK = 20,
+                        topP = 0.8,
+                        temperature = 0.1,
                     ),
-                    maxOutputToken = 256,
+                    // Dataset targets are at most 30 words. A hard generation bound avoids long,
+                    // repetitive answers and cuts latency/KV-cache growth on constrained devices.
+                    maxOutputToken = 48,
                 ),
             )
 
             val accumulatedResponse = StringBuilder()
+            var lastEmittedResponse = ""
             try {
                 // Real on-device inference. Each Message is a streamed fragment from LiteRT-LM.
-                conversation.sendMessageAsync(prompt).collect { message ->
+                conversation.sendMessageAsync(
+                    text = prompt,
+                    noRepeatNgramConfig = NoRepeatNgramConfig(noRepeatNgramSize = 4),
+                ).collect { message ->
                     accumulatedResponse.append(message.toString())
-                    emit(accumulatedResponse.toString())
+                    // Updating StateFlow/TextView for every token repeatedly copies the complete
+                    // response. Small batches keep streaming responsive without quadratic churn.
+                    if (accumulatedResponse.length - lastEmittedResponse.length >= EMIT_BATCH_CHARS) {
+                        lastEmittedResponse = accumulatedResponse.toString()
+                        emit(lastEmittedResponse)
+                    }
                 }
 
                 check(accumulatedResponse.isNotBlank()) {
                     "O modelo concluiu a inferência sem produzir texto."
                 }
+
+                val finalResponse = accumulatedResponse.toString().sanitizeSummary()
+                if (finalResponse != lastEmittedResponse) emit(finalResponse)
             } finally {
                 if (!currentCoroutineContext().isActive) {
                     runCatching { conversation.cancelProcess() }
@@ -116,11 +139,24 @@ class LLMManager(context: Context) : TextGenerator {
     suspend fun close() {
         operationMutex.withLock {
             withContext(Dispatchers.Default) {
-                engine?.let { current ->
-                    if (current.isInitialized()) current.close()
-                }
+                engine?.let { current -> runCatching { current.close() } }
                 engine = null
             }
         }
     }
+
+    private companion object {
+        const val EMIT_BATCH_CHARS = 32
+        const val MAX_CPU_THREADS = 4
+    }
+}
+
+internal fun String.sanitizeSummary(): String {
+    val firstParagraph = trim().split(Regex("\\n\\s*\\n"), limit = 2).firstOrNull().orEmpty()
+    return firstParagraph
+        .lineSequence()
+        .joinToString(" ") { line -> line.trim().trimStart('-', '*', '•').trim() }
+        .replace(Regex("^(?:resumo|summary)\\s*:\\s*", RegexOption.IGNORE_CASE), "")
+        .replace("**", "")
+        .trim()
 }

@@ -6,8 +6,11 @@
     <string name="select_model">Selecionar modelo .litertlm</string>
     <string name="input_label">Texto para resumir</string>
     <string name="summarize">Gerar resumo</string>
+    <string name="cancel_summary">Cancelar geração</string>
+    <string name="unload_model">Liberar modelo da memória</string>
+    <string name="reload_model">Recarregar modelo salvo</string>
     <string name="summary_label">Resumo gerado</string>
     <string name="summary_placeholder">O resultado real do modelo aparecerá aqui.</string>
+    <string name="inference_time">Tempo de inferência: %1$.2f s</string>
     <string name="sample_text">João: A reunião mudou para amanhã às 14h.\nMaria: Vou revisar o relatório hoje.\nPedro: Precisamos entregar até sexta-feira.</string>
 </resources>
-
