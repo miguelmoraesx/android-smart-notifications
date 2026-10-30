@@ -35,9 +35,11 @@ data class MainUiState(
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val modelStore = LocalModelStore(application)
-    private val llmManager = LLMManager(application)
-    private val summaryGenerator = SummaryGenerator(llmManager, PromptBuilder())
+    private val app = application as SmartNotificationsApplication
+    private val modelStore = app.localModelStore
+    private val llmManager = app.llmManager
+    private val summaryGenerator = app.summaryGenerator
+    private val notificationViewer = app.notificationViewer
     private val closeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val installedModelAtStartup = modelStore.getInstalledModel()
     private var generationJob: Job? = null
@@ -49,6 +51,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         installedModelAtStartup?.let(::initializeModel)
+        
+        viewModelScope.launch {
+            notificationViewer.latestSummary.collect { backgroundSummary ->
+                if (backgroundSummary.isNotBlank()) {
+                    mutableUiState.value = mutableUiState.value.copy(
+                        summary = backgroundSummary
+                    )
+                }
+            }
+        }
     }
 
     fun importAndInitializeModel(uri: Uri) {
