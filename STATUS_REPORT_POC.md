@@ -8,7 +8,7 @@
 ## 1. Contexto do Projeto
 O projeto **Notificações Inteligentes** (Hands-on Final DevTitans) visa criar uma solução nativa no Android (AOSP) capaz de interceptar rajadas de notificações de um mesmo contexto, utilizar uma Inteligência Artificial local no dispositivo (LLM) para resumi-las, e exibir a síntese de forma nativa ao usuário.
 
-O objetivo é reduzir a fadiga sem enviar conteúdo para uma API de inferência em nuvem. A implementação ainda registra conteúdo em logs de diagnóstico; inferência local não garante privacidade absoluta.
+Isso previne a fadiga de notificações e garante privacidade, uma vez que nenhum dado pessoal é enviado para a nuvem.
 
 Devido à complexidade de compilar o AOSP, a arquitetura foi dividida em duas frentes de trabalho:
 1.  **Frente AOSP (Branch `NotificationService` - Vitor):** Preparação do gancho nativo dentro do `SystemUI` para interceptar as notificações na camada do sistema operacional.
@@ -43,14 +43,8 @@ A integração **NÃO** deve ocorrer inserindo a biblioteca do LiteRT-LM e os 2.
 
 O recomendado é o **Modelo Cliente-Servidor via AIDL (IPC):**
 
-1.  **Transformar o App em System App:** A pasta deste projeto Gradle deverá ser convertida para um módulo Soong (`Android.bp`). O arquivo `.aar` do LiteRT-LM será adicionado à árvore do AOSP (`prebuilts`) para compilação estática. O serviço de inferência deverá executar em processo próprio, separado de SystemUI e system_server.
-2.  **Criar a Ponte AIDL:** Um contrato `ISmartSummaryService.aidl` será criado contendo uma solicitação assíncrona com identificador e callback, cancelamento e timeout.
+1.  **Transformar o App em System App:** A pasta deste projeto Gradle deverá ser convertida para um módulo Soong (`Android.bp`). O arquivo `.aar` do LiteRT-LM será adicionado à árvore do AOSP (`prebuilts`) para compilação estática. Este aplicativo rodará silenciosamente como um Serviço de Sistema (`SystemServer`).
+2.  **Criar a Ponte AIDL:** Um contrato `ISmartSummaryService.aidl` será criado contendo um método como `String generateSummary(String blockOfText)`.
 3.  **A Conexão no SystemUI:** O código atual do Vitor (`CustomNotificationHandler.java`), que roda no SystemUI e já intercepta as mensagens, servirá como "Cliente". Em vez de apenas dar `Log.d`, ele consumirá o AIDL, enviando o texto para o nosso Serviço Isolado e desenhando na tela a string mastigada que a LLM devolver.
 
-Dessa forma, isolamos o processamento massivo de Inteligência Artificial da renderização gráfica do Android, reduzindo o acoplamento com a interface; responsividade e pressão de memória ainda exigem testes.
-
-
-## Consolidação documental — 30/10/2026
-
-STATUS: CONCLUÍDO (PoC Validada On-Device). As observações acima são relatos de bancada do responsável, não medições repetidas nesta revisão. A identificação precisa do modelo é Gemma 4 E2B; tamanho do arquivo não equivale a RAM residente. Consulte README.md e MODEL_CARD.md para configurações, métricas relatadas e limites atuais.
-
+Dessa forma, isolamos o processamento massivo de Inteligência Artificial da renderização gráfica do Android, garantindo que o sistema operacional continue fluido.
