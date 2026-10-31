@@ -1,150 +1,85 @@
 # Notificações Inteligentes — PoC LiteRT-LM + Gemma
 
-Primeira prova de conceito do Hands-on Final DevTitans — Turma 9. Esta etapa valida somente o
-pipeline real e local:
+**STATUS: CONCLUÍDO (PoC Validada On-Device)**
+
+Hands-on Final DevTitans — Turma 9. A PoC captura notificações externas autorizadas pelo Android, agrupa rajadas e gera um resumo local, sem API de inferência em nuvem. A integração AIDL com AOSP/SystemUI é a próxima fase.
+
+## Validação em hardware físico
+
+Resultados de bancada informados pelo responsável pelo projeto, consolidados em 30/10/2026. Esta revisão documental não repetiu os testes ADB nem produziu um benchmark independente.
+
+| Item | Observação de bancada |
+| --- | --- |
+| Dispositivo | Motorola XT2125-4 / Moto G100, Snapdragon 870 |
+| Sistema | Android 17, conforme ambiente informado; registrar build fingerprint em futuras medições |
+| Inferência por lote de 3 mensagens | Aproximadamente 2,5–3,2 s; amostra e percentis não registrados |
+| Memória | Aproximadamente 2,4 GB informados; PSS/RSS não fornecidos, não confundir com tamanho do arquivo |
+| CPU | Até 4 threads nativas |
+| Debounce | 5 s de silêncio antes da inferência |
+
+O teste relatado utilizou `adb shell cmd notification post`, com origem `com.android.shell`, simulando contextos como Slack, WhatsApp e alertas DevOps. A captura externa, o agrupamento, o card `Resumo de 3 notificações` e a trava anti-loop foram validados. Isso demonstra independência do mock interno; não constitui teste direto de todos esses aplicativos nem garantia de acesso a qualquer notificação.
+
+A latência de inferência não inclui os cinco segundos de debounce, importação do modelo ou carregamento inicial. Ausência de OOM nos cenários relatados não elimina o risco em outros aparelhos ou cargas.
+
+## Arquitetura implementada
 
 ```text
-texto digitado → PromptBuilder → SummaryGenerator → LiteRT-LM → Gemma → resumo
+SmartNotificationListenerService (permissão do usuário)
+  → NotificationViewer (lote + debounce de 5 s)
+  → SummaryGenerator → PromptBuilder
+  → LLMManager → LiteRT-LM 0.17.0 → Gemma 4 E2B
+  → card Android no canal smart_summary_channel
 ```
 
-Não há resposta simulada: sem um modelo `.litertlm` compatível e carregado, a geração permanece
-desabilitada. Esta etapa não lê notificações, não implementa `NotificationListenerService` e não
-modifica AOSP/SystemUI.
+`SmartNotificationsApplication` mantém uma instância compartilhada de `LLMManager`, `LocalModelStore`, `SummaryGenerator` e `NotificationViewer` durante a vida do processo. Isso permite reutilizar o engine carregado entre lotes; não garante permanência dos pesos em RAM nem sobrevivência à destruição do processo pelo Android. O usuário ainda precisa selecionar e inicializar o modelo.
 
-## Decisões técnicas verificadas em 15/09/2026
+O listener descarta notificações do próprio pacote no canal `smart_summary_channel`, evitando recursão. A tela manual permanece disponível para diagnóstico. A captura depende das permissões e das restrições do sistema operacional.
 
-- **LiteRT-LM Android 0.17.0** (`com.google.ai.edge.litertlm:litertlm-android:0.17.0`), versão estável
-  mais recente publicada no Google Maven na data da implementação.
-- **API Kotlin estável do LiteRT-LM**, recomendada para Android/JVM. A inferência usa
-  `Conversation.sendMessageAsync(...): Flow<Message>`; o carregamento usa `Engine.initialize()`.
-- **Kotlin 2.4.20**, **AGP 9.1.1**, Gradle 9.3.1, JDK 17, `compileSdk`/`targetSdk` 37
-  e `minSdk` 24.
-- Backend inicial **CPU**, priorizando compatibilidade. A seleção futura de GPU/NPU fica isolada em
-  `LLMManager`.
-- Interface Android Views + ViewBinding, ViewModel, StateFlow e coroutines.
+## Prompt e limites de inferência
 
-Fontes oficiais consultadas:
-
-- [LiteRT-LM — guia da API Kotlin](https://github.com/google-ai-edge/LiteRT-LM/blob/v0.17.0/docs/api/kotlin/getting_started.md)
-- [LiteRT-LM — repositório e releases](https://github.com/google-ai-edge/LiteRT-LM)
-- [Execução de Gemma no edge](https://ai.google.dev/gemma/docs/run)
-- [Compatibilidade Kotlin/AGP/R8](https://developer.android.com/build/kotlin-support)
-
-O MediaPipe LLM Inference continua sendo uma alternativa para modelos empacotados no formato
-`.task`. Esta PoC usa LiteRT-LM porque sua API Kotlin atual trabalha diretamente com os modelos
-otimizados `.litertlm`, oferece streaming por `Flow` e prepara o projeto para CPU/GPU/NPU sem criar
-uma camada JNI própria.
-
-## Arquitetura
+`PromptBuilder` normaliza linhas, remove duplicatas e mantém até 1.600 caracteres recentes do conteúdo. O prompt completo inclui também estas instruções:
 
 ```text
-MainActivity
-    ↓ eventos / StateFlow
-MainViewModel
-    ├── LocalModelStore ── copia URI → filesDir/models/selected-model.litertlm
-    └── SummaryGenerator
-            ├── PromptBuilder
-            └── TextGenerator
-                    └── LLMManager ── Engine → Conversation → Flow<Message>
+Resuma as notificações em português do Brasil, em um parágrafo de no máximo 25 palavras.
+Preserve nomes, datas, horários, prazos e ações atuais. Ignore repetições, ruído e fatos corrigidos.
+Não invente informações. Responda somente com o resumo, sem Markdown.
+<mensagens>
+{texto_normalizado}
+</mensagens>
 ```
 
-- `MainActivity`: tela manual de entrada, seleção do modelo, progresso e saída.
-- `LocalModelStore`: transforma a URI do seletor Android em caminho privado absoluto, exigido pelo
-  runtime nativo.
-- `LLMManager`: único componente que conhece LiteRT-LM; carrega/fecha o `Engine` e executa a
-  inferência assíncrona real.
-- `PromptBuilder`: política de prompt de sumarização, testável sem Android.
-- `SummaryGenerator`: caso de uso `texto → prompt → LLM → resumo`, sem dependência de UI ou de
-  notificações.
+| Configuração | Valor e finalidade |
+| --- | --- |
+| `temperature` | 0.1: reduz diversidade; não garante determinismo ou factualidade |
+| `topK` / `topP` | 20 / 0.8: restringem a distribuição de amostragem |
+| `noRepeatNgramSize` | 4: reduz repetições |
+| `maxOutputToken` | 48: limita geração; tokens não equivalem a palavras |
+| Contexto | 768 tokens, para conter o KV cache |
+| CPU | `availableProcessors().coerceIn(1, 4)` |
 
-Na etapa futura, `NotificationViewer` deverá extrair e agrupar o texto das notificações e chamar
-`SummaryGenerator`. Ele não precisará conhecer o modelo nem a API LiteRT-LM.
+`sanitizeSummary()` remove cabeçalhos como “Resumo:” e formatação indesejada. O teto de 25 palavras é uma instrução, não uma garantia de contagem; alucinação e prompt injection continuam possíveis. Limitar contexto reduz o KV cache, cujo crescimento não deve ser descrito como exponencial. Quatro threads reduzem concorrência com a UI, mas não reservam fisicamente os demais núcleos.
 
-## Como executar
+O `dataset_optimized/` fornece pares `input`/`output`, alvos de até 25 palavras e exemplos de correções de estado que orientam o formato da tarefa. É procedural, com pouca diversidade em algumas categorias; não comprova qualidade em produção nem que o checkpoint distribuído tenha sido treinado nesses dados. Consulte seu [README](dataset_optimized/README.md).
 
-### Pré-requisitos
+## Executar e verificar
 
-- Android Studio compatível com AGP 9.1.1;
-- JDK 17;
-- Android SDK 37;
-- aparelho Android 7.0/API 24+ de 64 bits (`arm64-v8a`) ou emulador `x86_64`;
-- espaço livre e memória suficientes para o modelo escolhido.
-
-### Build
-
-No Windows:
+Requer JDK 17, Android SDK 37 e Android Studio compatível com AGP 9.1.1. O projeto usa Kotlin 2.4.20 e Gradle 9.3.1. Para a bancada, prefira dispositivo ARM64 com memória e armazenamento suficientes.
 
 ```powershell
 .\gradlew.bat testDebugUnitTest assembleDebug
 ```
 
-Em macOS/Linux:
+Em Linux/macOS, use `./gradlew testDebugUnitTest assembleDebug`. APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
-```bash
-./gradlew testDebugUnitTest assembleDebug
-```
+1. Instale o APK e conceda acesso às notificações nas configurações do Android e permissão de postagem quando solicitada.
+2. Baixe o artefato compatível descrito no [MODEL_CARD.md](MODEL_CARD.md).
+3. Selecione o `.litertlm` no app e aguarde “Modelo pronto”. O arquivo é copiado para o armazenamento privado.
+4. Envie notificações de teste sem dados pessoais, aguarde o debounce e confira o resumo e a ausência de recursão.
 
-O APK de debug será gerado em `app/build/outputs/apk/debug/app-debug.apk`.
+O modelo não está incluído no APK. Inferência offline não equivale a privacidade absoluta: a implementação atual registra conteúdo e resumos em logs de diagnóstico. Não use dados pessoais nesses testes; remover esses logs é um requisito antes de produção. Android pode suspender ou encerrar o processo sob pressão de memória.
 
-### Modelo Gemma
+## Próxima fase
 
-1. Obtenha um Gemma instruction-tuned e quantizado **já exportado no formato `.litertlm`**. A
-   coleção usada pelos exemplos oficiais está em
-   [Hugging Face — LiteRT Community](https://huggingface.co/litert-community). Um ponto de partida
-   atual é `litert-community/gemma-4-E2B-it-litert-lm`.
-2. Aceite os termos/licença aplicáveis ao modelo e baixe o arquivo `.litertlm`.
-3. Instale e abra o app em um dispositivo compatível.
-4. Toque em **Selecionar modelo .litertlm** e escolha o arquivo. A cópia e
-   `Engine.initialize()` ocorrem em background; modelos grandes podem levar vários segundos.
-5. Quando o status mostrar **Modelo pronto**, edite o texto de exemplo e toque em **Gerar resumo**.
+Criar um contrato AIDL assíncrono entre SystemUI e um serviço de inferência em **processo separado**, com autenticação/permissões, fila limitada, cancelamento, timeouts e recuperação após morte do Binder. Não carregar o modelo dentro de SystemUI ou system_server. A integração Soong/AOSP, a política de ciclo de vida e os testes sob pressão de memória ainda não estão concluídos.
 
-O modelo não é incluído no APK devido ao tamanho e aos termos de distribuição. Não use diretamente
-arquivos `.tflite`, `.task`, GGUF ou checkpoints Transformers: o artefato precisa ser compatível com
-a versão do LiteRT-LM usada pelo app.
-
-## Estrutura relevante
-
-```text
-app/
-├── models/README.md
-└── src/main/java/br/edu/devtitans/smartnotifications/
-    ├── MainActivity.kt
-    ├── MainViewModel.kt
-    └── ai/
-        ├── LLMManager.kt
-        ├── LocalModelStore.kt
-        ├── PromptBuilder.kt
-        └── SummaryGenerator.kt
-```
-
-## Limitações atuais
-
-- nenhum modelo é baixado, empacotado ou convertido pelo app;
-- somente um modelo fica instalado no armazenamento privado por vez;
-- backend fixo em CPU; desempenho depende fortemente do aparelho e do modelo;
-- o AAR 0.17.0 fornece binários Android para `arm64-v8a` e `x86_64`, não para ABIs de 32 bits;
-- não há medição de tokens, benchmark, seleção automática de backend ou cancelamento pela UI;
-- a qualidade do resumo depende do modelo quantizado escolhido;
-- ainda não existem captura/agrupamento de notificações, `NotificationViewer`, serviço Android ou
-  integração com SystemUI/AOSP.
-
-## Dataset otimizado e limites de inferência
-
-O utilitário `tools/optimize_dataset.py` audita o ZIP original sem executar scripts contidos nele e
-gera splits JSONL mínimos (`input`/`output`) para SFT. A versão gerada está em
-`dataset_optimized.zip` e inclui um relatório reproduzível das correções.
-
-Para reduzir latência e pressão de memória no aparelho, a inferência limita a entrada aos 1.600
-caracteres mais recentes, o contexto a 768 tokens e a resposta a 48 tokens. O backend usa no máximo
-quatro threads nativas e as atualizações da interface são agrupadas em blocos de 32 caracteres. A
-tela permite cancelar uma geração e descarregar/recarregar o modelo para liberar a memória nativa.
-Esses limites reduzem o KV cache e cópias de strings, mas não alteram a memória fixa necessária para
-carregar os pesos: um arquivo de modelo com aproximadamente 2,4 GB ainda exige um aparelho
-compatível ou a troca por um `.litertlm` menor e mais quantizado.
-
-Para regerar o dataset compacto:
-
-```bash
-python3 tools/optimize_dataset.py /caminho/dataset.zip dataset_optimized \
-  --zip-output dataset_optimized.zip
-```
+Veja as [notas de entrega](RELEASE_NOTES.md) e o [relatório de bancada](STATUS_REPORT_POC.md).
